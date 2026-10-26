@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: freelancer
+      POSTGRES_PASSWORD: freelancer
+      POSTGRES_DB: freelancer_assistant
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freelancer -d freelancer_assistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      # Host port 5432 is already used by another Postgres on this server, so
+      # expose on 5433 (localhost only). The app connects via the docker network.
+      - "127.0.0.1:5433:5432"
+
+  api:
+    build: .
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://freelancer:freelancer@db:5432/freelancer_assistant
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8001:8000"
+
+  worker:
+    build: .
+    command: python -m app.worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://freelancer:freelancer@db:5432/freelancer_assistant
+    depends_on:
+      db:
+        condition: service_healthy
+
+  bot:
+    build: .
+    command: python -m app.telegram.bot
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://freelancer:freelancer@db:5432/freelancer_assistant
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
